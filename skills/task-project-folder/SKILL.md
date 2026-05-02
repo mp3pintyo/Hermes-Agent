@@ -1,7 +1,7 @@
 ---
 name: task-project-folder
-description: "Start every user task with a unique project directory under /home/hermes/projects; capture prompts, final responses, artifacts, web sources, tool/skill usage, logs, and task metadata in a reproducible structure."
-version: 2.1.1
+description: "Start every user task with a unique project directory under ${PROJECTS_ROOT:-/home/hermes/projects}; capture prompts, final responses, artifacts, web sources, tool/skill usage, logs, and task metadata in a reproducible structure."
+version: 2.2.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -14,15 +14,29 @@ metadata:
 
 ## Overview
 
-Minden új felhasználói feladat elején hozz létre egy egyedi projektmappát a `/home/hermes/projects` alatt. A mappa legyen a feladat teljes, rendezett munkaterülete: ide kerüljön minden prompt, jegyzet, forrás, létrehozott fájl, export, webes forráslista, eszköz-/skillhasználati napló és rövid összefoglaló.
+Minden új felhasználói feladat elején hozz létre egy egyedi projektmappát a `${PROJECTS_ROOT:-/home/hermes/projects}` alatt. A mappa legyen a feladat teljes, rendezett munkaterülete: ide kerüljön minden prompt, jegyzet, forrás, létrehozott fájl, export, webes forráslista, eszköz-/skillhasználati napló és rövid összefoglaló.
 
 Cél: a feladat később visszakereshető, auditálható, reprodukálható és tisztán átadható legyen.
 
 Session-specific rationale and pitfalls for final-response capture: `references/final-response-logging.md`.
 
+## Configurability and Modes
+
+A skill célja az auditálhatóság, de ne termeljen felesleges adminisztrációt.
+
+- `PROJECTS_ROOT` (opcionális): a projektmappák gyökere. Default: `/home/hermes/projects`.
+- `TASK_FOLDER_MODE`:
+  - `full` (default): teljes auditstruktúra;
+  - `lite`: minimál naplózás kis feladatokhoz.
+
+Ajánlott döntési szabály:
+- **lite**: egyszerű, rövid, alacsony kockázatú kérés, kevés toolhívással.
+- **full**: több lépéses, fájlmódosítós, webforrásos, vagy átadásra szánt feladat.
+
+
 ## When to Use
 
-Kötelező használni minden új user-task indulásakor, akkor is, ha a feladat kicsi:
+Használd minden új user-task indulásakor, de a terheléshez igazított módban:
 - kutatás, webes böngészés, ár- vagy termékellenőrzés;
 - fájl létrehozása vagy módosítása;
 - kódolás, debug, konfigurálás;
@@ -33,10 +47,10 @@ Ha a feladat egy korábbi task egyértelmű folytatása, használd az eredeti pr
 
 ## Standard Directory Layout
 
-Hozd létre ezt az alapstruktúrát:
+Full módban használd ezt az alapstruktúrát:
 
 ```text
-/home/hermes/projects/YYYYMMDD-HHMMSS-short-task-slug/
+${PROJECTS_ROOT:-/home/hermes/projects}/YYYYMMDD-HHMMSS-short-task-slug/
 ├── README.md
 ├── task_metadata.json
 ├── inputs/
@@ -62,7 +76,21 @@ Hozd létre ezt az alapstruktúrát:
 └── tmp/
 ```
 
+Lite módban minimál struktúra is elfogadott:
+
+```text
+${PROJECTS_ROOT:-/home/hermes/projects}/YYYYMMDD-HHMMSS-short-task-slug/
+├── task_metadata.json
+├── inputs/
+│   └── prompts.json
+├── outputs/
+│   └── final_response.json
+└── artifacts/
+    └── manifest.json
+```
+
 Alapszabályok:
+
 - `inputs/`: user promptok és user által adott bemenetek.
 - `outputs/`: végleges, usernek átadható eredmények, beleértve a záró/final assistant választ is.
 - `sources/`: külső források, weboldalak, API endpointok, letöltési URL-ek.
@@ -72,9 +100,9 @@ Alapszabályok:
 
 ## Naming Rules
 
-1. Gyökér: `/home/hermes/projects`.
+1. Gyökér: `${PROJECTS_ROOT:-/home/hermes/projects}` vagy a környezetedben beállított `PROJECTS_ROOT`.
 2. Projektmappa név: `YYYYMMDD-HHMMSS-short-task-slug`.
-   - Példa: `/home/hermes/projects/20260429-082320-task-project-folder-skill-tuning`
+   - Példa: `${PROJECTS_ROOT:-/home/hermes/projects}/20260429-082320-task-project-folder-skill-tuning`
 3. A slug legyen rövid, kisbetűs, ékezet nélküli, kötőjeles.
 4. Ütközés esetén adj hozzá sorszámot: `-02`, `-03`.
 
@@ -84,7 +112,7 @@ Feladat elején:
 
 1. Állapítsd meg az aktuális timestampet eszközzel, ne emlékezetből.
 2. Hozd létre a projektmappát és az alap almappákat.
-3. Hozd létre a kötelező naplófájlokat üres vagy kezdő tartalommal.
+3. Hozd létre a szükséges mappákat és csak a ténylegesen használt naplófájlokat (lazy-create).
 4. Mentsd el az aktuális user promptot `inputs/prompt_log.md` és `inputs/prompts.json` fájlba.
 5. Jegyezd fel, hogy ezt a skillt használtad `logs/skill_usage.*` alatt.
 6. A záró/final választ a kiküldés előtt vagy azzal azonos tartalommal mentsd `outputs/final_response.md` és `outputs/final_response.json` fájlba.
@@ -96,11 +124,19 @@ Javasolt shell mappalétrehozás:
 mkdir -p "$PROJECT_DIR"/{inputs,notes,sources,logs,artifacts,outputs,tmp}
 ```
 
+## Logging Policy (Canonical Format)
+
+A **JSON a kanonikus forrás**.
+- Kötelező: `*.json` naplók.
+- Opcionális: `*.md` emberi nézet, ami a JSON-ból készül vagy azzal konzisztens.
+
+Ha csak egy formátumot tudsz biztosan konzisztensen vezetni, a JSON legyen az.
+
 ## Prompt Logging Requirements
 
-Minden user promptot ments el két formátumban:
+Minden user promptot legalább JSON-ben ments el:
 
-### `inputs/prompt_log.md`
+### `inputs/prompt_log.md` (opcionális, ajánlott)
 
 Emberileg olvasható, időrendi napló:
 
@@ -133,7 +169,7 @@ Géppel feldolgozható JSON tömb:
 ]
 ```
 
-Többüzenetes feladatnál minden új user üzenet után appendeld mindkét fájlt.
+Többüzenetes feladatnál minden új user üzenet után appendeld a `prompts.json`-t, és ha használsz MD nézetet, azt is frissítsd.
 
 ## Final Response Logging Requirements
 
@@ -175,7 +211,7 @@ Fontos: a final válasz mentése ne maradjon ki csak azért, mert az utolsó lé
 
 Ha bármilyen weboldalt, API endpointot, dokumentációt, GitHub oldalt, keresési találatot vagy letöltési URL-t megnyitsz vagy felhasználsz, mentsd el:
 
-### `sources/web_sources.md`
+### `sources/web_sources.md` (opcionális, ajánlott)
 
 ```markdown
 # Web sources
@@ -205,9 +241,9 @@ Kötelező logolni a ténylegesen meglátogatott/használt URL-t, nem csak a dom
 
 ## Tool Usage Logging Requirements
 
-Minden eszközhasználatot vezess két nézetben: részletes eseménynapló és összesítés.
+Minden eszközhasználatot vezesd JSON-ben; az MD nézet opcionális összefoglaló.
 
-### `logs/tool_usage.md`
+### `logs/tool_usage.md` (opcionális)
 
 ```markdown
 # Tool usage
@@ -253,9 +289,9 @@ Ne ments titkokat, tokeneket, jelszavakat vagy teljes credential tartalmakat a n
 
 ## Skill Usage Logging Requirements
 
-Minden betöltött vagy használt skillt naplózz:
+Minden betöltött vagy használt skillt naplózz JSON-ben; MD opcionális:
 
-### `logs/skill_usage.md`
+### `logs/skill_usage.md` (opcionális)
 
 ```markdown
 # Skill usage
@@ -302,7 +338,7 @@ Minden létrehozott vagy módosított fájlt jegyezz fel `artifacts/manifest.jso
 ```json
 [
   {
-    "path": "/home/hermes/projects/.../outputs/report.md",
+    "path": "${PROJECTS_ROOT:-/home/hermes/projects}/.../outputs/report.md",
     "type": "markdown_report",
     "created_or_modified": "created",
     "timestamp_local": "2026-04-29T08:40:00",
@@ -323,7 +359,7 @@ Tartalmazza legalább:
 
 ```json
 {
-  "project_dir": "/home/hermes/projects/YYYYMMDD-HHMMSS-slug",
+  "project_dir": "${PROJECTS_ROOT:-/home/hermes/projects}/YYYYMMDD-HHMMSS-slug",
   "created_at_local": "2026-04-29T08:23:20",
   "task_title": "Rövid cím",
   "task_slug": "short-task-slug",
@@ -381,9 +417,9 @@ A záró válaszban szerepeljen:
 
 ## Common Pitfalls
 
-1. Prompt csak MD-ben mentődik, JSON-ben nem. Mindkettő kötelező.
+1. Prompt csak MD-ben mentődik, JSON-ben nem. A JSON kötelező, az MD opcionális nézet.
 2. Webes források kimaradnak. Minden megnyitott vagy felhasznált URL-t logolj.
-3. Tool/skill usage csak fejben marad. Kötelező legalább összesítve és eseményenként menteni.
+3. Tool/skill usage csak fejben marad. Kötelező JSON-ben eseményszinten menteni.
 4. Szétszórt fájlok. Minden taskhoz tartozó fájl a projektmappába kerüljön, vagy legyen manifestben külső fájlként megjelölve.
 5. Titkok naplózása. Credentialt, tokent, cookie-t soha ne ments teljes értékben.
 6. Több független task egy mappában. Új cél = új projektmappa.
@@ -392,13 +428,13 @@ A záró válaszban szerepeljen:
 
 ## Verification Checklist
 
-- [ ] Projektmappa létrejött `/home/hermes/projects` alatt, egyedi timestampelt névvel.
+- [ ] Projektmappa létrejött `PROJECTS_ROOT` alatt (default: `${PROJECTS_ROOT:-/home/hermes/projects}`), egyedi timestampelt névvel.
 - [ ] Standard almappák létrejöttek.
 - [ ] `README.md` és `task_metadata.json` létrejött.
-- [ ] Minden user prompt mentve `inputs/prompt_log.md` és `inputs/prompts.json` alatt.
-- [ ] Webes források, ha voltak, mentve `sources/web_sources.md` és `sources/web_sources.json` alatt.
-- [ ] Toolhasználat mentve `logs/tool_usage.md` és `logs/tool_usage.json` alatt.
-- [ ] Skillhasználat mentve `logs/skill_usage.md` és `logs/skill_usage.json` alatt.
+- [ ] Minden user prompt mentve legalább `inputs/prompts.json` alatt (MD nézet opcionális).
+- [ ] Webes források, ha voltak, mentve legalább `sources/web_sources.json` alatt (MD nézet opcionális).
+- [ ] Toolhasználat mentve `logs/tool_usage.json` alatt (MD nézet opcionális).
+- [ ] Skillhasználat mentve `logs/skill_usage.json` alatt (MD nézet opcionális).
 - [ ] Létrehozott/módosított fájlok szerepelnek `artifacts/manifest.json` alatt.
 - [ ] Végső kimenetek `outputs/` alatt vannak, ha releváns.
 - [ ] Final válasz mentve `outputs/final_response.md` és `outputs/final_response.json` alatt.
